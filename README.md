@@ -31,7 +31,7 @@ zabbix-installer/
 If you are using the GitHub version:
 
 ```bash
-git clone <YOUR_GITHUB_REPO_URL> zabbix-installer
+git clone https://github.com/Nix556/Zabbix-Installer.git zabbix-installer
 cd zabbix-installer
 ```
 
