@@ -1,7 +1,6 @@
 #!/bin/bash
 set -e
 
-# Ensure sbin directories are in PATH for dpkg, ldconfig, start-stop-daemon
 export PATH=$PATH:/sbin:/usr/sbin:/usr/local/sbin
 
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -26,7 +25,6 @@ info "Detecting OS..."
 detect_os
 success "OS detected: $OS_NAME $OS_VERSION"
 
-# Interactive prompts
 ZABBIX_IP=$(ask "Enter Zabbix Server IP:" "127.0.0.1")
 while ! validate_ip "$ZABBIX_IP"; do
     warn "Invalid IP address"
@@ -52,19 +50,17 @@ echo "Zabbix IP: $ZABBIX_IP"
 echo "Zabbix Admin password: $ZABBIX_ADMIN_PASS"
 echo ""
 
-# Install required packages
 info "Installing required packages..."
 run_cmd "apt update -y"
 run_cmd "apt install -y wget curl gnupg2 lsb-release jq apt-transport-https mariadb-server apache2 php php-mysql php-xml php-bcmath php-mbstring php-ldap php-json php-gd php-zip"
 success "Prerequisites installed"
 
-# Add Zabbix repository (fixed for Debian 12)
 info "Adding Zabbix 7.4 repository..."
 if [[ "$OS_NAME" == "Debian" ]]; then
     ZBX_REPO_URL="https://repo.zabbix.com/zabbix/7.4/release/debian/pool/main/z/zabbix-release/zabbix-release_latest_7.4+debian12_all.deb"
 else
     DEB_CODENAME=$(lsb_release -cs | tr '[:upper:]' '[:lower:]')
-    ZBX_REPO_URL="https://repo.zabbix.com/zabbix/7.4/ubuntu/pool/main/z/zabbix-release/zabbix-release_7.4-1+${DEB_CODENAME}_all.deb"
+    ZBX_REPO_URL="https://repo.zabbix.com/zabbix/7.4/release/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.4+ubuntu24.04_all.deb"
 fi
 
 run_cmd "wget -O /tmp/zabbix-release.deb $ZBX_REPO_URL"
@@ -72,17 +68,14 @@ run_cmd "dpkg -i /tmp/zabbix-release.deb"
 run_cmd "apt update -y"
 success "Zabbix repository added"
 
-# Install Zabbix server, frontend, agent
 info "Installing Zabbix server, frontend, and agent..."
 run_cmd "apt install -y zabbix-server-mysql zabbix-frontend-php zabbix-apache-conf zabbix-sql-scripts zabbix-agent"
 success "Zabbix installed"
 
-# Create database
 info "Creating Zabbix database..."
 create_zabbix_db "$ZABBIX_DB_NAME" "$ZABBIX_DB_USER" "$ZABBIX_DB_PASS" "$DB_ROOT_PASS"
 success "Database created"
 
-# Import schema
 info "Importing initial schema..."
 SCHEMA_FILE=$(find /usr/share -type f -name "server.sql.gz" 2>/dev/null | head -n1)
 if [[ -f "$SCHEMA_FILE" ]]; then
@@ -93,7 +86,6 @@ else
     exit 1
 fi
 
-# Configure Zabbix server
 info "Configuring Zabbix server..."
 ZABBIX_CONF="/etc/zabbix/zabbix_server.conf"
 run_cmd "sed -i \"s/^# DBHost=.*/DBHost=localhost/\" $ZABBIX_CONF"
@@ -102,18 +94,15 @@ run_cmd "sed -i \"s/^# DBUser=.*/DBUser=$ZABBIX_DB_USER/\" $ZABBIX_CONF"
 run_cmd "sed -i \"s/^# DBPassword=.*/DBPassword=$ZABBIX_DB_PASS/\" $ZABBIX_CONF"
 success "Zabbix server configured"
 
-# Configure PHP
 PHP_INI="/etc/php/*/apache2/php.ini"
 run_cmd "sed -i 's@^;date.timezone =.*@date.timezone = Europe/Copenhagen@' $PHP_INI"
 success "PHP configured"
 
-# Start services
 info "Starting Zabbix and Apache..."
 run_cmd "systemctl enable zabbix-server zabbix-agent apache2"
 run_cmd "systemctl restart zabbix-server zabbix-agent apache2"
 success "Services started"
 
-# Generate API config
 info "Generating API configuration..."
 cat > "$CONFIG_DIR/zabbix_api.conf" <<EOF
 # Zabbix API configuration
