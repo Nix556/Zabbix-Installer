@@ -22,15 +22,33 @@ fi
 
 echo -e "${GREEN}[OK] OS detected: Debian $OS_VER${NC}"
 
-# AUTOMATIC CONFIGURATION
-ZABBIX_IP="${ZABBIX_IP:-127.0.0.1}"
-ZABBIX_DB_NAME="${ZABBIX_DB_NAME:-zabbix}"
-ZABBIX_DB_USER="${ZABBIX_DB_USER:-zabbix}"
-ZABBIX_DB_PASS="${ZABBIX_DB_PASS:-ZabbixPass1!}"
-DB_ROOT_PASS="${DB_ROOT_PASS:-RootPass1!}"
-ZABBIX_ADMIN_PASS="${ZABBIX_ADMIN_PASS:-zabbix}"
+read -rp "Enter Zabbix Server IP [127.0.0.1]: " ZABBIX_IP
+ZABBIX_IP=${ZABBIX_IP:-127.0.0.1}
 
-echo -e "${GREEN}[INFO] Using automatic configuration:${NC}"
+read -rp "Enter Zabbix DB name [zabbix]: " ZABBIX_DB_NAME
+ZABBIX_DB_NAME=${ZABBIX_DB_NAME:-zabbix}
+
+read -rp "Enter Zabbix DB user [zabbix]: " ZABBIX_DB_USER
+ZABBIX_DB_USER=${ZABBIX_DB_USER:-zabbix}
+
+while true; do
+    read -rsp "Enter Zabbix DB password: " ZABBIX_DB_PASS
+    echo
+    [[ -n "$ZABBIX_DB_PASS" ]] && break
+    echo -e "${YELLOW}[WARN] Password cannot be empty${NC}"
+done
+
+while true; do
+    read -rsp "Enter MariaDB root password: " DB_ROOT_PASS
+    echo
+    [[ -n "$DB_ROOT_PASS" ]] && break
+    echo -e "${YELLOW}[WARN] Password cannot be empty${NC}"
+done
+
+read -rp "Enter Zabbix Admin password (frontend) [zabbix]: " ZABBIX_ADMIN_PASS
+ZABBIX_ADMIN_PASS=${ZABBIX_ADMIN_PASS:-zabbix}
+
+echo -e "${GREEN}[INFO] Configuration summary:${NC}"
 echo "DB: $ZABBIX_DB_NAME / $ZABBIX_DB_USER"
 echo "Zabbix IP: $ZABBIX_IP"
 echo "Zabbix Admin password: $ZABBIX_ADMIN_PASS"
@@ -39,7 +57,7 @@ echo -e "${GREEN}[INFO] Installing required packages...${NC}"
 apt update -y
 apt install -y wget curl gnupg2 lsb-release jq apt-transport-https \
 mariadb-server apache2 php php-mysql php-xml php-bcmath php-mbstring \
-php-ldap php-json php-gd php-zip snmpd fping libsnmp40 php-curl
+php-ldap php-json php-gd php-zip php-curl zabbix-sql-scripts snmpd fping libsnmp40
 
 echo -e "${GREEN}[OK] Prerequisites installed${NC}"
 
@@ -51,12 +69,18 @@ apt update -y
 echo -e "${GREEN}[OK] Zabbix repository added${NC}"
 
 echo -e "${GREEN}[INFO] Installing Zabbix server, frontend, and agent...${NC}"
-apt install -y zabbix-server-mysql zabbix-frontend-php zabbix-apache-conf \
-zabbix-agent zabbix-sql-scripts
+apt install -y zabbix-server-mysql zabbix-frontend-php zabbix-apache-conf zabbix-agent
 
 echo -e "${GREEN}[OK] Zabbix installed${NC}"
 
-# CREATE DATABASE AUTOMATICALLY 
+# --- Ensure root can login with password ---
+mysql_root_auth=$(mysql -u root -e "SELECT 1;" 2>/dev/null || true)
+if [[ -z "$mysql_root_auth" ]]; then
+    echo -e "${GREEN}[INFO] Setting MariaDB root password authentication...${NC}"
+    sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$DB_ROOT_PASS'; FLUSH PRIVILEGES;"
+    echo -e "${GREEN}[OK] MariaDB root password set${NC}"
+fi
+
 echo -e "${GREEN}[INFO] Creating Zabbix database and user...${NC}"
 mysql -u root -p"$DB_ROOT_PASS" <<MYSQL_SCRIPT
 CREATE DATABASE IF NOT EXISTS $ZABBIX_DB_NAME character set utf8mb4 collate utf8mb4_bin;
@@ -64,10 +88,11 @@ CREATE USER IF NOT EXISTS '$ZABBIX_DB_USER'@'localhost' IDENTIFIED BY '$ZABBIX_D
 GRANT ALL PRIVILEGES ON $ZABBIX_DB_NAME.* TO '$ZABBIX_DB_USER'@'localhost';
 FLUSH PRIVILEGES;
 MYSQL_SCRIPT
+
 echo -e "${GREEN}[OK] Database created${NC}"
 
-# IMPORT SCHEMA 
 echo -e "${GREEN}[INFO] Importing initial schema...${NC}"
+
 SQL_DIRS=(
     "/usr/share/zabbix/sql-scripts/mysql"
     "/usr/share/doc/zabbix-sql-scripts/mysql"
@@ -94,9 +119,11 @@ fi
 
 sed -i "s/^DBPassword=.*/DBPassword=$ZABBIX_DB_PASS/" /etc/zabbix/zabbix_server.conf
 
-# PHP TIMEZONE
+# --- Automatic PHP timezone detection and update ---
 echo -e "${GREEN}[INFO] Configuring PHP timezone for Apache...${NC}"
+
 PHP_INI=$(php --ini | grep "Loaded Configuration" | awk -F: '{print $2}' | xargs)
+
 if [[ -f "$PHP_INI" ]]; then
     if ! grep -q "^date.timezone" "$PHP_INI"; then
         echo "date.timezone = UTC" >> "$PHP_INI"
@@ -108,9 +135,10 @@ else
     echo -e "${YELLOW}[WARN] PHP configuration file not found, timezone not set.${NC}"
 fi
 
-# CREATE ZABBIX FRONTEND CONFIG 
+# --- Automatic creation of zabbix.conf.php ---
 echo -e "${GREEN}[INFO] Creating Zabbix frontend configuration...${NC}"
 FRONTEND_CONF="/etc/zabbix/web/zabbix.conf.php"
+
 cat > "$FRONTEND_CONF" <<EOF
 <?php
 \$DB['TYPE']     = 'MYSQL';
@@ -129,7 +157,7 @@ chown www-data:www-data "$FRONTEND_CONF"
 chmod 640 "$FRONTEND_CONF"
 echo -e "${GREEN}[OK] Zabbix frontend configuration created at $FRONTEND_CONF${NC}"
 
-# START SERVICES 
+# Reload Apache and enable services
 echo -e "${GREEN}[INFO] Enabling and starting services...${NC}"
 systemctl enable zabbix-server zabbix-agent apache2
 systemctl restart apache2
