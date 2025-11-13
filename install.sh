@@ -11,15 +11,12 @@ YELLOW="\033[1;33m"
 NC="\033[0m"
 
 echo -e "${GREEN}[INFO] Detecting OS...${NC}"
-
 OS_NAME=$(lsb_release -si)
 OS_VER=$(lsb_release -sr)
-
 if [[ "$OS_NAME" != "Debian" || "$OS_VER" != "12"* ]]; then
     echo -e "${RED}[ERROR] This script only supports Debian 12.${NC}"
     exit 1
 fi
-
 echo -e "${GREEN}[OK] OS detected: Debian $OS_VER${NC}"
 
 read -rp "Enter Zabbix Server IP [127.0.0.1]: " ZABBIX_IP
@@ -55,8 +52,8 @@ echo "Zabbix Admin password: $ZABBIX_ADMIN_PASS"
 
 echo -e "${GREEN}[INFO] Installing required packages...${NC}"
 apt update -y
-apt install -y wget curl gnupg2 lsb-release jq apt-transport-https mariadb-server apache2 php php-mysql php-xml php-bcmath php-mbstring php-ldap php-json php-gd php-zip
-
+apt install -y wget curl gnupg2 lsb-release jq apt-transport-https mariadb-server apache2 \
+php php-mysql php-xml php-bcmath php-mbstring php-ldap php-json php-gd php-zip
 echo -e "${GREEN}[OK] Prerequisites installed${NC}"
 
 echo -e "${GREEN}[INFO] Adding Zabbix 7.4 repository...${NC}"
@@ -67,8 +64,8 @@ apt update -y
 echo -e "${GREEN}[OK] Zabbix repository added${NC}"
 
 echo -e "${GREEN}[INFO] Installing Zabbix server, frontend, and agent...${NC}"
-apt install -y zabbix-server-mysql zabbix-frontend-php zabbix-apache-conf zabbix-agent zabbix-sql-scripts snmpd fping libsnmp40 php-curl
-
+apt install -y zabbix-server-mysql zabbix-frontend-php zabbix-apache-conf \
+zabbix-agent zabbix-sql-scripts snmpd fping libsnmp40 php-curl
 echo -e "${GREEN}[OK] Zabbix installed${NC}"
 
 echo -e "${GREEN}[INFO] Creating Zabbix database and user...${NC}"
@@ -78,13 +75,26 @@ CREATE USER IF NOT EXISTS '$ZABBIX_DB_USER'@'localhost' IDENTIFIED BY '$ZABBIX_D
 GRANT ALL PRIVILEGES ON $ZABBIX_DB_NAME.* TO '$ZABBIX_DB_USER'@'localhost';
 FLUSH PRIVILEGES;
 MYSQL_SCRIPT
-
 echo -e "${GREEN}[OK] Database created${NC}"
 
 echo -e "${GREEN}[INFO] Importing initial schema...${NC}"
-zcat /usr/share/zabbix-sql-scripts/mysql/schema.sql.gz | mysql -u"$ZABBIX_DB_USER" -p"$ZABBIX_DB_PASS" "$ZABBIX_DB_NAME"
-zcat /usr/share/zabbix-sql-scripts/mysql/images.sql.gz | mysql -u"$ZABBIX_DB_USER" -p"$ZABBIX_DB_PASS" "$ZABBIX_DB_NAME"
-zcat /usr/share/zabbix-sql-scripts/mysql/data.sql.gz | mysql -u"$ZABBIX_DB_USER" -p"$ZABBIX_DB_PASS" "$ZABBIX_DB_NAME"
+SQL_PATH=$(find /usr/share -type d -name "zabbix-sql-scripts" -print -quit)
+if [[ -z "$SQL_PATH" ]]; then
+    echo -e "${RED}[ERROR] Zabbix SQL scripts folder not found.${NC}"
+    exit 1
+fi
+
+for sqlfile in schema.sql images.sql data.sql; do
+    if [[ -f "$SQL_PATH/mysql/$sqlfile" ]]; then
+        echo -e "${GREEN}[INFO] Importing $sqlfile...${NC}"
+        mysql -u"$ZABBIX_DB_USER" -p"$ZABBIX_DB_PASS" "$ZABBIX_DB_NAME" < "$SQL_PATH/mysql/$sqlfile"
+    elif [[ -f "$SQL_PATH/mysql/$sqlfile.gz" ]]; then
+        echo -e "${GREEN}[INFO] Importing $sqlfile.gz...${NC}"
+        zcat "$SQL_PATH/mysql/$sqlfile.gz" | mysql -u"$ZABBIX_DB_USER" -p"$ZABBIX_DB_PASS" "$ZABBIX_DB_NAME"
+    else
+        echo -e "${YELLOW}[WARN] $sqlfile not found, skipping.${NC}"
+    fi
+done
 echo -e "${GREEN}[OK] Schema imported${NC}"
 
 sed -i "s/^DBPassword=.*/DBPassword=$ZABBIX_DB_PASS/" /etc/zabbix/zabbix_server.conf
