@@ -119,7 +119,23 @@ fi
 
 sed -i "s/^DBPassword=.*/DBPassword=$ZABBIX_DB_PASS/" /etc/zabbix/zabbix_server.conf
 
-# --- Automatic PHP timezone detection and update ---
+# Ensure Zabbix Agent config exists
+AGENT_CONF="/etc/zabbix/zabbix_agentd.conf"
+
+if [[ ! -f "$AGENT_CONF" ]]; then
+    echo -e "${GREEN}[INFO] Creating default Zabbix agent configuration...${NC}"
+    cat > "$AGENT_CONF" <<EOF
+PidFile=/var/run/zabbix/zabbix_agentd.pid
+LogFile=/var/log/zabbix/zabbix_agentd.log
+Server=$ZABBIX_IP
+ServerActive=$ZABBIX_IP
+Hostname=$(hostname)
+Include=/etc/zabbix/zabbix_agentd.d/*.conf
+EOF
+    echo -e "${GREEN}[OK] Zabbix agent configuration created at $AGENT_CONF${NC}"
+fi
+
+# Automatic PHP timezone detection and update
 echo -e "${GREEN}[INFO] Configuring PHP timezone for Apache...${NC}"
 
 PHP_INI=$(php --ini | grep "Loaded Configuration" | awk -F: '{print $2}' | xargs)
@@ -135,7 +151,7 @@ else
     echo -e "${YELLOW}[WARN] PHP configuration file not found, timezone not set.${NC}"
 fi
 
-# --- Automatic creation of zabbix.conf.php ---
+# Automatic creation of zabbix.conf.php
 echo -e "${GREEN}[INFO] Creating Zabbix frontend configuration...${NC}"
 FRONTEND_CONF="/etc/zabbix/web/zabbix.conf.php"
 
