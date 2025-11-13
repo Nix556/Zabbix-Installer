@@ -82,12 +82,13 @@ MYSQL_SCRIPT
 echo -e "${GREEN}[OK] Database created${NC}"
 
 echo -e "${GREEN}[INFO] Importing initial schema...${NC}"
-zcat /usr/share/doc/zabbix-sql-scripts/mysql/server.sql.gz | mysql -u "$ZABBIX_DB_USER" -p"$ZABBIX_DB_PASS" "$ZABBIX_DB_NAME"
+zcat /usr/share/zabbix-sql-scripts/mysql/schema.sql.gz | mysql -u"$ZABBIX_DB_USER" -p"$ZABBIX_DB_PASS" "$ZABBIX_DB_NAME"
+zcat /usr/share/zabbix-sql-scripts/mysql/images.sql.gz | mysql -u"$ZABBIX_DB_USER" -p"$ZABBIX_DB_PASS" "$ZABBIX_DB_NAME"
+zcat /usr/share/zabbix-sql-scripts/mysql/data.sql.gz | mysql -u"$ZABBIX_DB_USER" -p"$ZABBIX_DB_PASS" "$ZABBIX_DB_NAME"
 echo -e "${GREEN}[OK] Schema imported${NC}"
 
 sed -i "s/^DBPassword=.*/DBPassword=$ZABBIX_DB_PASS/" /etc/zabbix/zabbix_server.conf
 
-# Enable services
 systemctl enable zabbix-server zabbix-agent apache2
 systemctl start zabbix-server zabbix-agent
 systemctl reload apache2
