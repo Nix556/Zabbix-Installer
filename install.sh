@@ -5,14 +5,13 @@ export PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin
 set -euo pipefail
 IFS=$'\n\t'
 
-# Colors
 RED="\033[0;31m"
 GREEN="\033[0;32m"
 YELLOW="\033[1;33m"
 NC="\033[0m"
 
-# Detect OS
 echo -e "${GREEN}[INFO] Detecting OS...${NC}"
+
 OS_NAME=$(lsb_release -si)
 OS_VER=$(lsb_release -sr)
 
@@ -23,7 +22,6 @@ fi
 
 echo -e "${GREEN}[OK] OS detected: Debian $OS_VER${NC}"
 
-# User input
 read -rp "Enter Zabbix Server IP [127.0.0.1]: " ZABBIX_IP
 ZABBIX_IP=${ZABBIX_IP:-127.0.0.1}
 
@@ -50,22 +48,19 @@ done
 read -rp "Enter Zabbix Admin password (frontend) [zabbix]: " ZABBIX_ADMIN_PASS
 ZABBIX_ADMIN_PASS=${ZABBIX_ADMIN_PASS:-zabbix}
 
-# Summary
 echo -e "${GREEN}[INFO] Configuration summary:${NC}"
 echo "DB: $ZABBIX_DB_NAME / $ZABBIX_DB_USER"
 echo "Zabbix IP: $ZABBIX_IP"
 echo "Zabbix Admin password: $ZABBIX_ADMIN_PASS"
 
-# Install prerequisites
 echo -e "${GREEN}[INFO] Installing required packages...${NC}"
 apt update -y
 apt install -y wget curl gnupg2 lsb-release jq apt-transport-https \
-    mariadb-server apache2 php php-mysql php-xml php-bcmath php-mbstring \
-    php-ldap php-json php-gd php-zip
+mariadb-server apache2 php php-mysql php-xml php-bcmath php-mbstring \
+php-ldap php-json php-gd php-zip
 
 echo -e "${GREEN}[OK] Prerequisites installed${NC}"
 
-# Add Zabbix repo
 echo -e "${GREEN}[INFO] Adding Zabbix 7.4 repository...${NC}"
 ZABBIX_DEB="/tmp/zabbix-release.deb"
 wget -qO "$ZABBIX_DEB" "https://repo.zabbix.com/zabbix/7.4/release/debian/pool/main/z/zabbix-release/zabbix-release_latest_7.4+debian12_all.deb"
@@ -73,14 +68,12 @@ dpkg -i "$ZABBIX_DEB"
 apt update -y
 echo -e "${GREEN}[OK] Zabbix repository added${NC}"
 
-# Install Zabbix packages
 echo -e "${GREEN}[INFO] Installing Zabbix server, frontend, and agent...${NC}"
 apt install -y zabbix-server-mysql zabbix-frontend-php zabbix-apache-conf \
-    zabbix-agent zabbix-sql-scripts snmpd fping libsnmp40 php-curl
+zabbix-agent zabbix-sql-scripts snmpd fping libsnmp40 php-curl
 
 echo -e "${GREEN}[OK] Zabbix installed${NC}"
 
-# Create database and user
 echo -e "${GREEN}[INFO] Creating Zabbix database and user...${NC}"
 mysql -u root -p"$DB_ROOT_PASS" <<MYSQL_SCRIPT
 CREATE DATABASE IF NOT EXISTS $ZABBIX_DB_NAME character set utf8mb4 collate utf8mb4_bin;
@@ -88,46 +81,80 @@ CREATE USER IF NOT EXISTS '$ZABBIX_DB_USER'@'localhost' IDENTIFIED BY '$ZABBIX_D
 GRANT ALL PRIVILEGES ON $ZABBIX_DB_NAME.* TO '$ZABBIX_DB_USER'@'localhost';
 FLUSH PRIVILEGES;
 MYSQL_SCRIPT
+
 echo -e "${GREEN}[OK] Database created${NC}"
 
-# Import schema
 echo -e "${GREEN}[INFO] Importing initial schema...${NC}"
 
-# Detect schema path
-SQL_PATH=$(find /usr/share -type d -name "zabbix-sql-scripts" -print -quit)
-if [[ -z "$SQL_PATH" ]]; then
-    echo -e "${RED}[ERROR] Zabbix SQL scripts folder not found.${NC}"
-    exit 1
-fi
+SQL_DIRS=(
+    "/usr/share/zabbix/sql-scripts/mysql"
+    "/usr/share/doc/zabbix-sql-scripts/mysql"
+)
 
-for sqlfile in schema.sql images.sql data.sql; do
-    if [[ -f "$SQL_PATH/mysql/$sqlfile" ]]; then
-        echo -e "${GREEN}[INFO] Importing $sqlfile...${NC}"
-        mysql -u"$ZABBIX_DB_USER" -p"$ZABBIX_DB_PASS" "$ZABBIX_DB_NAME" < "$SQL_PATH/mysql/$sqlfile"
-    elif [[ -f "$SQL_PATH/mysql/$sqlfile.gz" ]]; then
-        echo -e "${GREEN}[INFO] Importing $sqlfile.gz...${NC}"
-        zcat "$SQL_PATH/mysql/$sqlfile.gz" | mysql -u"$ZABBIX_DB_USER" -p"$ZABBIX_DB_PASS" "$ZABBIX_DB_NAME"
-    elif [[ -f "/usr/share/doc/zabbix-sql-scripts/mysql/$sqlfile" ]]; then
-        echo -e "${GREEN}[INFO] Importing $sqlfile from /usr/share/doc/...${NC}"
-        mysql -u"$ZABBIX_DB_USER" -p"$ZABBIX_DB_PASS" "$ZABBIX_DB_NAME" < "/usr/share/doc/zabbix-sql-scripts/mysql/$sqlfile"
-    elif [[ -f "/usr/share/doc/zabbix-sql-scripts/mysql/$sqlfile.gz" ]]; then
-        echo -e "${GREEN}[INFO] Importing $sqlfile.gz from /usr/share/doc/...${NC}"
-        zcat "/usr/share/doc/zabbix-sql-scripts/mysql/$sqlfile.gz" | mysql -u"$ZABBIX_DB_USER" -p"$ZABBIX_DB_PASS" "$ZABBIX_DB_NAME"
-    else
-        echo -e "${YELLOW}[WARN] $sqlfile not found, skipping.${NC}"
+FOUND=0
+for DIR in "${SQL_DIRS[@]}"; do
+    if [[ -d "$DIR" ]]; then
+        for FILE in server.sql.gz images.sql.gz data.sql.gz; do
+            if [[ -f "$DIR/$FILE" ]]; then
+                echo -e "${GREEN}[INFO] Importing $FILE ...${NC}"
+                zcat "$DIR/$FILE" | mysql --default-character-set=utf8mb4 -u"$ZABBIX_DB_USER" -p"$ZABBIX_DB_PASS" "$ZABBIX_DB_NAME"
+                FOUND=1
+            fi
+        done
     fi
 done
 
-echo -e "${GREEN}[OK] Schema imported${NC}"
+if [[ $FOUND -eq 0 ]]; then
+    echo -e "${YELLOW}[WARN] No schema files found, skipping import.${NC}"
+else
+    echo -e "${GREEN}[OK] Schema imported${NC}"
+fi
 
-# Configure Zabbix server
 sed -i "s/^DBPassword=.*/DBPassword=$ZABBIX_DB_PASS/" /etc/zabbix/zabbix_server.conf
 
-# Enable and start services
+# --- Automatic PHP timezone detection and update ---
+echo -e "${GREEN}[INFO] Configuring PHP timezone for Apache...${NC}"
+
+PHP_INI=$(php --ini | grep "Loaded Configuration" | awk -F: '{print $2}' | xargs)
+
+if [[ -f "$PHP_INI" ]]; then
+    if ! grep -q "^date.timezone" "$PHP_INI"; then
+        echo "date.timezone = UTC" >> "$PHP_INI"
+    else
+        sed -i "s|^date.timezone.*|date.timezone = UTC|" "$PHP_INI"
+    fi
+    echo -e "${GREEN}[OK] PHP timezone set to UTC in $PHP_INI${NC}"
+else
+    echo -e "${YELLOW}[WARN] PHP configuration file not found, timezone not set.${NC}"
+fi
+
+# --- Automatic creation of zabbix.conf.php ---
+echo -e "${GREEN}[INFO] Creating Zabbix frontend configuration...${NC}"
+FRONTEND_CONF="/etc/zabbix/web/zabbix.conf.php"
+
+cat > "$FRONTEND_CONF" <<EOF
+<?php
+\$DB['TYPE']     = 'MYSQL';
+\$DB['SERVER']   = 'localhost';
+\$DB['PORT']     = '0';
+\$DB['DATABASE'] = '$ZABBIX_DB_NAME';
+\$DB['USER']     = '$ZABBIX_DB_USER';
+\$DB['PASSWORD'] = '$ZABBIX_DB_PASS';
+\$ZBX_SERVER     = '$ZABBIX_IP';
+\$ZBX_SERVER_PORT= '10051';
+\$ZBX_SERVER_NAME= 'Zabbix Server';
+\$IMAGE_FORMAT_DEFAULT = IMAGE_FORMAT_PNG;
+EOF
+
+chown www-data:www-data "$FRONTEND_CONF"
+chmod 640 "$FRONTEND_CONF"
+echo -e "${GREEN}[OK] Zabbix frontend configuration created at $FRONTEND_CONF${NC}"
+
+# Reload Apache and enable services
+echo -e "${GREEN}[INFO] Enabling and starting services...${NC}"
 systemctl enable zabbix-server zabbix-agent apache2
-systemctl start apache2
+systemctl restart apache2
 systemctl start zabbix-server zabbix-agent
-systemctl reload apache2
 
 echo -e "${GREEN}[OK] Zabbix server and agent started. Apache reloaded.${NC}"
 echo -e "${GREEN}[INFO] Installation complete! Access frontend at http://$ZABBIX_IP/zabbix${NC}"
