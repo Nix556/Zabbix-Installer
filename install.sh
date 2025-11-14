@@ -1,6 +1,5 @@
 #!/bin/bash
 # zabbix 7.4 installer for Debian 12 / Ubuntu 22.04
-# fully interactive, fixes agent config issue
 
 export PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin
 set -euo pipefail
