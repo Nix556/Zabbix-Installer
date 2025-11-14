@@ -1,4 +1,4 @@
-#!/bin/basha
+#!/bin/bash
 # zabbix 7.4 installer for Debian 12 / Ubuntu 22.04
 # fully interactive, agent config compatible with directory-based setup
 
