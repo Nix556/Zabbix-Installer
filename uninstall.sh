@@ -1,25 +1,26 @@
 #!/bin/bash
-# Zabbix 7.4 uninstaller using lib scripts
+# Zabbix 7.4 uninstaller for Debian 12 / Ubuntu 22.04
+# Stops services, removes packages, configuration, and database
 
 set -euo pipefail
 IFS=$'\n\t'
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-source "$SCRIPT_DIR/lib/colors.sh"
-source "$SCRIPT_DIR/lib/utils.sh"
-source "$SCRIPT_DIR/lib/db.sh"
-source "$SCRIPT_DIR/lib/system.sh"
+RED="\033[0;31m"
+GREEN="\033[0;32m"
+YELLOW="\033[1;33m"
+NC="\033[0m"
 
-info "This will completely remove Zabbix and its database!"
-if ! confirm "Are you sure you want to continue?"; then
-    success "Uninstallation canceled."
+echo -e "${YELLOW}[WARNING] This will completely remove Zabbix and its database!${NC}"
+read -rp "Are you sure you want to continue? (yes/no): " CONFIRM
+if [[ "$CONFIRM" != "yes" ]]; then
+    echo -e "${GREEN}[INFO] Uninstallation canceled.${NC}"
     exit 0
 fi
 
 # Stop services
-stop_service zabbix-server || true
-stop_service zabbix-agent || true
-stop_service apache2 || true
+echo -e "${GREEN}[INFO] stopping Zabbix and Apache services...${NC}"
+systemctl stop zabbix-server zabbix-agent apache2 || true
+systemctl disable zabbix-server zabbix-agent apache2 || true
 
 # Ask for MariaDB root password
 while true; do
@@ -28,44 +29,50 @@ while true; do
     [[ -n "$ROOT_PASS" ]] && break
 done
 
-# Ask for database name and user
-DB_NAME=$(ask "Enter Zabbix database name to delete" "zabbix")
-DB_USER=$(ask "Enter Zabbix database user to delete" "zabbix")
+# Ask for database name to delete
+read -rp "Enter Zabbix database name to delete [zabbix]: " DB_NAME
+DB_NAME=${DB_NAME:-zabbix}
 
 # Confirm database deletion
-if confirm "This will DROP the database '$DB_NAME' and user '$DB_USER'. Continue?"; then
-    drop_zabbix_db "$DB_NAME" "$DB_USER" "$ROOT_PASS"
+echo -e "${YELLOW}[WARNING] This will DROP the database '$DB_NAME'!${NC}"
+read -rp "Are you sure? (yes/no): " DB_CONFIRM
+if [[ "$DB_CONFIRM" == "yes" ]]; then
+    echo -e "${GREEN}[INFO] dropping database '$DB_NAME'...${NC}"
+    mysql -uroot -p"$ROOT_PASS" -e "DROP DATABASE IF EXISTS $DB_NAME;"
 else
-    warn "Skipping database deletion."
+    echo -e "${GREEN}[INFO] Skipping database deletion.${NC}"
 fi
 
-# Remove packages
-info "Removing Zabbix packages..."
+# Remove Zabbix packages
+echo -e "${GREEN}[INFO] removing Zabbix packages...${NC}"
 DEBIAN_FRONTEND=noninteractive apt purge -y \
     zabbix-server-mysql zabbix-frontend-php zabbix-apache-conf zabbix-agent \
     zabbix-agent-mysql zabbix-sql-scripts
 
-# Remove configuration
-info "Removing configuration files..."
-rm -rf /etc/zabbix /usr/share/zabbix /var/log/zabbix /var/lib/zabbix
+# Remove configuration files and directories
+echo -e "${GREEN}[INFO] removing configuration files...${NC}"
+rm -rf /etc/zabbix
+rm -rf /usr/share/zabbix
+rm -rf /var/log/zabbix
+rm -rf /var/lib/zabbix
 
-# Remove Zabbix repo
-if dpkg -l | grep -q zabbix-release; then
-    info "Removing Zabbix repository package..."
-    dpkg -r zabbix-release || true
-fi
+# Remove Zabbix repository package
+echo -e "${GREEN}[INFO] removing Zabbix repository package...${NC}"
+dpkg -r zabbix-release || true
 rm -f /tmp/zabbix-release.deb
 
-# Remove Apache Zabbix config
+# Remove Apache Zabbix configuration
 if [ -f /etc/apache2/conf-available/zabbix.conf ]; then
     a2disconf zabbix || true
     rm -f /etc/apache2/conf-available/zabbix.conf
-    systemctl reload apache2 || true
 fi
 
-# Cleanup
-info "Cleaning up unused packages..."
+# Reload Apache
+systemctl reload apache2 || true
+
+# Cleanup packages
+echo -e "${GREEN}[INFO] cleaning up unused packages...${NC}"
 apt autoremove -y
 apt update -y
 
-success "Zabbix uninstallation complete!"
+echo -e "${GREEN}[OK] Zabbix uninstallation complete!${NC}"
