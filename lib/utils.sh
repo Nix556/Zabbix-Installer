@@ -22,10 +22,13 @@ validate_ip() {
     fi
 }
 
+validate_port() {
+    [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 ))
+}
+
 show_spinner() {
     local pid=$1
     local msg=$2
-    local end_msg=$3
     local delay=0.1
     local spinstr='|/-\'
     echo -n "$msg "
@@ -36,5 +39,5 @@ show_spinner() {
         done
     done
     wait $pid
-    echo -e "\b[OK] $end_msg"
+    echo -e "\b[OK] $msg"
 }
