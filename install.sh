@@ -85,7 +85,7 @@ FLUSH PRIVILEGES;
 EOF
 
 # Import initial Zabbix schema
-SQL_FILE="/usr/share/doc/zabbix-sql-scripts/mysql/server.sql.gz"
+SQL_FILE="/usr/share/zabbix-sql-scripts/mysql/server.sql.gz"
 if [[ -f "$SQL_FILE" ]]; then
     echo -e "${GREEN}[INFO] Importing initial Zabbix schema...${NC}"
     zcat "$SQL_FILE" | mysql --default-character-set=utf8mb4 -u"$DB_USER" -p"$DB_PASS" "$DB_NAME"
