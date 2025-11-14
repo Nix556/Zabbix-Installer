@@ -1,3 +1,7 @@
+#!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+source "$SCRIPT_DIR/colors.sh"
+
 ask() { 
     local prompt=$1
     local default=$2
@@ -23,12 +27,14 @@ validate_ip() {
 }
 
 validate_port() {
-    [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 ))
+    local port=$1
+    [[ $port =~ ^[0-9]+$ ]] && (( port >= 1 && port <= 65535 ))
 }
 
 show_spinner() {
     local pid=$1
     local msg=$2
+    local end_msg=$3
     local delay=0.1
     local spinstr='|/-\'
     echo -n "$msg "
@@ -39,5 +45,5 @@ show_spinner() {
         done
     done
     wait $pid
-    echo -e "\b[OK] $msg"
+    echo -e "\b[OK] $end_msg"
 }
