@@ -1,5 +1,6 @@
 #!/bin/bash
 # Full Zabbix 7.4 installer (Debian 12 / Ubuntu 22.04)
+
 export PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin
 set -euo pipefail
 IFS=$'\n\t'
